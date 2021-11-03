@@ -21,6 +21,13 @@ def main(argv):
         parser = argparse.ArgumentParser(description="Process images listed in the image list file. ")
         parser.add_argument('list', metavar='IMAGE_LIST', type=str, nargs=1,
                             help='A JSON file that lists planning and intraprocedural images.')
+        parser.add_argument('-i', dest='saveRegImage', action='store_const',
+                            const=True, default=False,
+                            help='Save registered images')
+        parser.add_argument('-l', dest='saveRegLabel', action='store_const',
+                            const=True, default=False,
+                            help='Save registered labels')
+
         #parser.add_argument('-b', dest='bSplineOrder', default='3',
         #                    help='B-Spline order (default: 3)')
         #parser.add_argument('-s', dest='shrinkFactor', default='4',
@@ -44,7 +51,9 @@ def main(argv):
     intraImageList = imageList['INTRA_IMAGES']
 
     param = {
-        'margin': 0.0
+        'margin': 0.0,
+        'saveRegImage': args.saveRegImage,
+        'saveRegLabel': args.saveRegLabel
     }
 
     print ('Case,Cycle,Time,Ser,V_TG,V_EUS,V_NVB,V_ablation,V_INV_TG,V_INV_EUS,V_INV_NVB,OFF_X,OFF_Y,OFF_Z')
@@ -54,7 +63,7 @@ def main(argv):
         fz   =     imageData[1]
         time =     imageData[2]
         ser  =     imageData[3]
-        freg =     imageData[4]
+        freg =     imageData[4]    # 0: No registration; 1: Registration w/o mask; 2: Registration w/ mask
         ablationImageFile = imageData[5]
         ablationLabelFile = imageData[6]
         
@@ -64,7 +73,7 @@ def main(argv):
             
             ablationLabelPath = 'PC%03d/NIFTY-Iceball-AXTSE-label/%s' % (int(exam), ablationLabelFile)
             planAnatomLabelPath = 'PC%03d/NIFTY-Anatomy-label/%s' % (int(exam), planImageDict[exam][1])
-    
+            
             planImage = sitk.ReadImage(planImagePath, sitk.sitkFloat32)
             ablationImage = sitk.ReadImage(ablationImagePath, sitk.sitkFloat32)
 
@@ -78,9 +87,21 @@ def main(argv):
             if freg > 0:
                 movingImage = planImage
                 fixedImage = ablationImage
-                movingImageMasked = ar.mask(movingImage, structureLabel, dilation=10)
-                transform = ar.registerImages(fixedImage, movingImageMasked, param)
+                mask = None
+                if freg == 2:
+                    #movingImage = ar.mask(movingImage, structureLabel, dilation=10)
+                    mask = ar.createMaskFromAnatomLabel(structureLabel, movingImage, dilation=30)
+                transform = ar.registerImages(fixedImage, movingImage, param, mask=mask)
                 structureLabelResampled = ar.resampleImage(structureLabel, ablationLabel, transform, interp='nearest')
+                if param['saveRegLabel']:
+                    registeredLabelPath = 'PC%03d/NIFTY-Anatomy-label/REG-LABEL-%d-%s' % (int(exam), ser, planImageDict[exam][1])
+                    sitk.WriteImage(structureLabelResampled, registeredLabelPath)
+            
+                if param['saveRegImage']:
+                    registeredImagePath = 'PC%03d/NIFTY-Anatomy-label/REG-IMAGE-%d-%s' % (int(exam), ser, planImageDict[exam][0])
+                    planImageResampled = ar.resampleImage(planImage, ablationImage, transform, interp='linear')
+                    sitk.WriteImage(planImageResampled, registeredImagePath)
+                
                 offset = transform.GetParameters()
             
             results = ae.evaluateAblation(structureLabelResampled, ablationLabel, param)

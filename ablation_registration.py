@@ -54,38 +54,86 @@ def mask(image, anatomLabel, dilation=0):
     maskedImage = sitk.Mask(image, maskLabel, maskingValue=0, outsideValue=1)
 
     return maskedImage
-    
 
-def registerImages(fixedImage, movingImage, param):
+
+def createMaskFromAnatomLabel(anatomLabel, image, dilation=0):
+    
+    relabelMap =  { i : 0 for i in range(2, 256) }
+    maskLabel = sitk.ChangeLabel(anatomLabel, changeMap=relabelMap)
+
+    if dilation > 0:
+        filter = sitk.BinaryDilateImageFilter()
+        filter.SetKernelRadius ( dilation )
+        filter.SetForegroundValue ( 1 )
+        maskLabel = filter.Execute ( maskLabel )
+        
+    #sitk.WriteImage(maskLabel, 'masklabel.nrrd')
+    
+    # Make sure that the mask and the moving image occupy the same physical space.
+    transform = sitk.AffineTransform(3)
+    maskLabel = resampleImage(maskLabel, image, transform, 'nearest')
+    
+    return maskLabel
+
+
+def registerImages(fixedImage, movingImage, param, mask=None):
 
     if not 'numberOfBins' in param:
         param['numberOfBins'] = 50
     if not 'samplingPercentage' in param:
-        param['samplingPercentage'] = 0.1
+        param['samplingPercentage'] = 0.02
         
     R = sitk.ImageRegistrationMethod()
-    R.SetMetricAsMattesMutualInformation(param['numberOfBins'])
-    R.SetMetricSamplingPercentage(param['samplingPercentage'], sitk.sitkWallClock)
-    R.SetMetricSamplingStrategy(R.RANDOM)
-    R.SetOptimizerAsRegularStepGradientDescent(1.0, .001, 200)
-    #R.SetOptimizerAsGradientDescent(learningRate=1.0, numberOfIterations=200, convergenceMinimumValue=1e-6, convergenceWindowSize=10)
-    R.SetInitialTransform(sitk.TranslationTransform(fixedImage.GetDimension()))
-    #R.SetInitialTransform(sitk.Euler3DTransform())
-    R.SetInterpolator(sitk.sitkLinear)
 
-    R.AddCommand(sitk.sitkIterationEvent, lambda: command_iteration(R))
-
-    transform = R.Execute(fixedImage, movingImage)
-
+    # set up registration method
+    euler_trans=sitk.Euler3DTransform(sitk.CenteredTransformInitializer(fixedImage,movingImage,sitk.Euler3DTransform()))
+    #euler_trans=R.SetInitialTransform(sitk.Euler3DTransform())
+    rigid_versor_trans = sitk.VersorRigid3DTransform()
+    rigid_versor_trans.SetCenter(euler_trans.GetCenter())
+    rigid_versor_trans.SetTranslation(euler_trans.GetTranslation())
+    rigid_versor_trans.SetMatrix(euler_trans.GetMatrix())
+    
+    Reg2=sitk.ImageRegistrationMethod()
+    Reg2.SetInitialTransform(rigid_versor_trans,inPlace=True)
+    
+    # Reg2.SetMetricAsCorrelation()
+    Reg2.SetMetricAsMattesMutualInformation(numberOfHistogramBins = param['numberOfBins'])
+    #Reg2.SetMetricFixedMask(fixedMask)
+    if mask:
+        Reg2.SetMetricMovingMask(mask)
+        
+    Reg2.SetInterpolator(sitk.sitkLinear)
+    Reg2.SetOptimizerAsRegularStepGradientDescent(learningRate=0.2,
+                                                  numberOfIterations=1500,
+                                                  minStep=0.005,
+                                                  relaxationFactor = 0.5,
+                                                  gradientMagnitudeTolerance=1e-5,
+                                                  maximumStepSizeInPhysicalUnits=0.2)
+    
+    Reg2.SetOptimizerScales([1.0,1.0,1.0,1.0/1000,1.0/1000,1.0/1000])
+    
+    smoothingSigmas=[0]
+    Reg2.SetSmoothingSigmasPerLevel(smoothingSigmas)
+    
+    Reg2.SetMetricSamplingStrategy(Reg2.RANDOM)
+    Reg2.SetMetricSamplingPercentage(param['samplingPercentage'])
+    
+    Reg2.SetSmoothingSigmasAreSpecifiedInPhysicalUnits(True)
+    
+    shrinkFactors=[1]
+    Reg2.SetShrinkFactorsPerLevel(shrinkFactors)
+    
+    # execute
+    Reg2.AddCommand( sitk.sitkIterationEvent, lambda: command_iteration(Reg2))
+    transform = Reg2.Execute(fixedImage, movingImage)
+    
     # print("-------")
     # print(transform)
     # print(f"Optimizer stop condition: {R.GetOptimizerStopConditionDescription()}")
     # print(f" Iteration: {R.GetOptimizerIteration()}")
     # print(f" Metric value: {R.GetMetricValue()}")
 
-
     return transform
-    
     
 
 def registration_main(argv):
@@ -112,20 +160,24 @@ def registration_main(argv):
     movingImageFile = args.moving[0]
     resampledImageFile = args.resampled[0]
     
-    param = {
-    }
+    param = {}
 
     fixedImage = sitk.ReadImage (fixedImageFile, sitk.sitkFloat32)
     movingImage = sitk.ReadImage(movingImageFile, sitk.sitkFloat32)
 
     movingImageMasked = movingImage
+    maskImage = None
+    dilation = 25
     if args.anatomLabel != '':
         anatomLabel = sitk.ReadImage(args.anatomLabel, sitk.sitkInt8)
-        movingImageMasked = mask(movingImage, anatomLabel, dilation=20)
-        #sitk.WriteImage(movingImageMasked, 'maskedimage.nrrd')
+        #movingImageMasked = mask(movingImage, anatomLabel, dilation=dilation)
+        #sitk.WriteImage(movingImageMasked, 'masked.nrrd')
+        maskImage = createMaskFromAnatomLabel(anatomLabel, movingImage, dilation=dilation)
 
-    transform = registerImages(fixedImage, movingImageMasked, param)
+    #transform = registerImages(fixedImage, movingImageMasked, param)
+    transform = registerImages(fixedImage, movingImage, param, mask=maskImage)
     resampledImage = resampleImage(movingImage, fixedImage, transform)
+    print(transform)
     
     sitk.WriteImage(resampledImage, resampledImageFile)
     
