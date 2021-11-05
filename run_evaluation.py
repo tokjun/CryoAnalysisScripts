@@ -63,9 +63,11 @@ def main(argv):
         fz   =     imageData[1]
         time =     imageData[2]
         ser  =     imageData[3]
-        freg =     imageData[4]    # 0: No registration; 1: Registration w/o mask; 2: Registration w/ mask
+        freg =     imageData[4]    # 0: No registration; 1: Registration w/o mask; 2: Registration w/ mask; 3: registration w/mask w/offset
         ablationImageFile = imageData[5]
         ablationLabelFile = imageData[6]
+        if freg == 3:
+            param['initialOffset'] = imageData[7]
         
         if exam in planImageDict.keys():
             ablationImagePath = 'PC%03d/NIFTY-Iceball-AXTSE/%s' % (int(exam), ablationImageFile)

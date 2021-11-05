@@ -82,16 +82,31 @@ def registerImages(fixedImage, movingImage, param, mask=None):
         param['numberOfBins'] = 50
     if not 'samplingPercentage' in param:
         param['samplingPercentage'] = 0.02
-        
+
+    offset = None
+    if 'initialOffset' in param:
+        offset = param['initialOffset']
+            
     R = sitk.ImageRegistrationMethod()
 
     # set up registration method
-    euler_trans=sitk.Euler3DTransform(sitk.CenteredTransformInitializer(fixedImage,movingImage,sitk.Euler3DTransform()))
-    #euler_trans=R.SetInitialTransform(sitk.Euler3DTransform())
+
     rigid_versor_trans = sitk.VersorRigid3DTransform()
-    rigid_versor_trans.SetCenter(euler_trans.GetCenter())
-    rigid_versor_trans.SetTranslation(euler_trans.GetTranslation())
-    rigid_versor_trans.SetMatrix(euler_trans.GetMatrix())
+    if offset:
+        #t =tuple(offset) 
+        #translation = sitk.TranslationTransform(fixedImage.GetDimension(), t)
+        # Copy the translational component.
+        #euler_trans = sitk.Euler3DTransform()
+        #euler_trans.SetTranslation(translation.GetOffset())
+        #rigid_versor_trans.SetCenter(euler_trans.GetCenter())
+        #rigid_versor_trans.SetTranslation(euler_trans.GetTranslation())
+        #rigid_versor_trans.SetMatrix(euler_trans.GetMatrix())
+        rigid_versor_trans.SetTranslation(offset)
+    else:
+        euler_trans=sitk.Euler3DTransform(sitk.CenteredTransformInitializer(fixedImage,movingImage,sitk.Euler3DTransform()))
+        rigid_versor_trans.SetCenter(euler_trans.GetCenter())
+        rigid_versor_trans.SetTranslation(euler_trans.GetTranslation())
+        rigid_versor_trans.SetMatrix(euler_trans.GetMatrix())
     
     Reg2=sitk.ImageRegistrationMethod()
     Reg2.SetInitialTransform(rigid_versor_trans,inPlace=True)
@@ -149,6 +164,8 @@ def registration_main(argv):
                             help='Resampled')
         parser.add_argument('-m', dest='anatomLabel', default='',
                             help='Anatom label map for masking.')
+        parser.add_argument('-t', dest='initialOffset', default='',
+                            help='Number of control points (default: None)')
 
         args = parser.parse_args(argv)
         
@@ -161,6 +178,11 @@ def registration_main(argv):
     resampledImageFile = args.resampled[0]
     
     param = {}
+    if args.initialOffset != '':
+        offset = args.initialOffset
+        offset = offset.split(',')
+        offset = [float(f) for f in offset]
+        param['initialOffset'] = offset
 
     fixedImage = sitk.ReadImage (fixedImageFile, sitk.sitkFloat32)
     movingImage = sitk.ReadImage(movingImageFile, sitk.sitkFloat32)
