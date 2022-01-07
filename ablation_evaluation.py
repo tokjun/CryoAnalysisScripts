@@ -11,6 +11,28 @@ anatomDict = {
     3 : 'NVB'
 }
 
+
+def computeDistanceFromAblationVolume(anatomLabel, ablationLabel):
+
+    distMapFilter = sitk.SignedDanielssonDistanceMapImageFilter()
+    distMap = distMapFilter.Execute(ablationLabel)
+    
+    labelStatistics = sitk.LabelStatisticsImageFilter()
+    labelStatistics.Execute(distMap, anatomLabel)
+    n = labelStatistics.GetNumberOfLabels()
+    minDistances = {}
+    for i in range(1,n):
+        #print("%d," % i)                           #Index
+        #print("%f," % labelStatistics.GetCount(i))  #Count
+        #print("%f," % labelStatistics.GetMinimum(i))    #Min
+        #print("%f," % labelStatistics.GetMaximum(i))    #Max
+        #print("%f," % labelStatistics.GetMean(i))   #Mean
+        #print("%f\n"% labelStatistics.GetSigma(i))  #StdDev
+        minDistances[i] = float(labelStatistics.GetMinimum(i))
+
+    return minDistances
+
+
 def addMargin(srcLabel, margin):
     
     dilate = sitk.BinaryDilateImageFilter()
@@ -53,14 +75,14 @@ def getLabelVolume(srcLabel):
     for i in range(dimension):
         voxelVolume = voxelVolume * (spacing[i] / 10.0)
 
-    
     #print('voxel spacing = %s' % str(spacing))
     #print('voxel volume = %f' % voxelVolume)
     labelStatistics = sitk.LabelStatisticsImageFilter()
     labelStatistics.Execute(srcLabel, srcLabel)
     n = labelStatistics.GetNumberOfLabels()
     volumes = {}
-    for i in range(1,n):
+    
+    for i in anatomDict:
         #print("%d," % i)                           #Index
         #print("%f," % labelStatistics.GetCount(i))  #Count
         #print("%f," % labelStatistics.GetMinimum(i))    #Min
@@ -114,6 +136,13 @@ def evaluateAblation(structureLabel, ablationLabel, param):
     overlapVolumes = measureOverlap(resampledStructureLabel, ablationLabel)
     for key in overlapVolumes:
         results['Involved.'+anatomDict[key]] = overlapVolumes[key]
+        #print('Involved.'+anatomDict[key]+': '+str(overlapVolumes[key]))
+
+
+    minDistances = computeDistanceFromAblationVolume(resampledStructureLabel, ablationLabel)
+    for key in minDistances:
+        results['MinDist.'+anatomDict[key]] = minDistances[key]
+        #print('MinDist.'+anatomDict[key]+': '+str(minDistances[key]))
 
     return results
 

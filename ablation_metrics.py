@@ -7,7 +7,7 @@ import csv
 import numpy as np
 
 
-def computeMetrics(mesHeader, mesTable, volNamesAnatom, volNamesAblation):
+def computeMetrics(mesHeader, mesTable, volNamesAnatom, volNamesAblation, volNamesAblationDist):
     
     colTime       = mesHeader.index('Time')
     #colSer        = mesHeader.index('Ser')
@@ -27,6 +27,12 @@ def computeMetrics(mesHeader, mesTable, volNamesAnatom, volNamesAblation):
         metrics[name+'_max'] = v_max
         metrics[name+'_duration'] = v_dur
         
+    for name in volNamesAblationDist:
+        col = mesHeader.index(name)
+        v = mesTable[:,col]
+        v_min = np.min(v)
+        metrics[name] = v_min
+        
     for name in volNamesAnatom:
         col = mesHeader.index(name)
         metrics[name] = mesTable[:,col][0]
@@ -43,19 +49,23 @@ def processMeasurementTable(mesHeader, mesTable, param):
 
     volNamesAnatom = ['V_TG','V_EUS','V_NVB']
     volNamesAblation = ['V_ablation','V_INV_TG','V_INV_EUS','V_INV_NVB']
+    volNamesAblationDist = ['MIN_DIST_TG','MIN_DIST_EUS','MIN_DIST_NVB']
 
     resTable = []
     resHeader = ['Case', 'Cycle'] + volNamesAnatom
     for name in volNamesAblation:
         resHeader.append(name+'_max')
         resHeader.append(name+'_duration')
+        
+    for name in volNamesAblationDist:
+        resHeader.append(name)
     
     for case in caseList:
         caseMesTable = mesTable[mesTable[:,colCase] == case, :]
         cycleList = np.unique(caseMesTable[:,colCycle])
         for cycle in cycleList:
             cycleMesTable = caseMesTable[caseMesTable[:,colCycle] == cycle, :]
-            metrics = computeMetrics(mesHeader, cycleMesTable, volNamesAnatom, volNamesAblation)
+            metrics = computeMetrics(mesHeader, cycleMesTable, volNamesAnatom, volNamesAblation, volNamesAblationDist)
             
             r = [int(case), int(cycle)]
             for name in volNamesAnatom:
@@ -64,6 +74,10 @@ def processMeasurementTable(mesHeader, mesTable, param):
             for name in volNamesAblation:
                 r.append(metrics[name+'_max'])
                 r.append(metrics[name+'_duration'])
+
+            for name in volNamesAblationDist:
+                r.append(metrics[name])
+                
             resTable.append(r)
         
     return (resHeader, resTable)

@@ -56,7 +56,7 @@ def main(argv):
         'saveRegLabel': args.saveRegLabel
     }
 
-    print ('Case,Cycle,Time,Ser,V_TG,V_EUS,V_NVB,V_ablation,V_INV_TG,V_INV_EUS,V_INV_NVB,OFF_X,OFF_Y,OFF_Z')
+    print ('Case,Cycle,Time,Ser,V_TG,V_EUS,V_NVB,V_ablation,V_INV_TG,V_INV_EUS,V_INV_NVB,MIN_DIST_TG,MIN_DIST_EUS,MIN_DIST_NVB,OFF_X,OFF_Y,OFF_Z')
     
     for imageData in intraImageList:
         exam =     str(imageData[0])
@@ -87,6 +87,7 @@ def main(argv):
             structureLabelResampled = structureLabel
             
             if freg > 0:
+                                    
                 movingImage = planImage
                 fixedImage = ablationImage
                 mask = None
@@ -105,12 +106,18 @@ def main(argv):
                     sitk.WriteImage(planImageResampled, registeredImagePath)
                 
                 offset = transform.GetParameters()
-            
             results = ae.evaluateAblation(structureLabelResampled, ablationLabel, param)
 
             #results = ae.evaluateAblation(structureLabel, ablationLabel, param)
+
+            if not 'MinDist.TG'in results:
+                results['MinDist.TG'] = float('nan')
+            if not 'MinDist.EUS'in results:
+                results['MinDist.EUS'] = float('nan')
+            if not 'MinDist.NVB'in results:
+                results['MinDist.NVB'] = float('nan')
             
-            print ('%d,%d,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f' % (int(exam),
+            print ('%d,%d,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f' % (int(exam),
                                                                   fz,
                                                                   time,
                                                                   ser,
@@ -121,6 +128,9 @@ def main(argv):
                                                                   results['Involved.TG'],
                                                                   results['Involved.EUS'],
                                                                   results['Involved.NVB'],
+                                                                  results['MinDist.TG'],
+                                                                  results['MinDist.EUS'],
+                                                                  results['MinDist.NVB'],
                                                                   offset[0],offset[1],offset[2])
                    )
             
