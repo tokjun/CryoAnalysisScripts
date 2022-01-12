@@ -76,7 +76,8 @@ def createMaskFromAnatomLabel(anatomLabel, image, dilation=0):
     return maskLabel
 
 
-def registerImages(fixedImage, movingImage, param, mask=None):
+def registerImages(fixedImage, movingImage, param, mask=None, maskType='moving'):
+  # maskType specifies which image will be masked. It should be either 'moving' or 'fixed'.
 
     if not 'numberOfBins' in param:
         param['numberOfBins'] = 50
@@ -115,7 +116,10 @@ def registerImages(fixedImage, movingImage, param, mask=None):
     Reg2.SetMetricAsMattesMutualInformation(numberOfHistogramBins = param['numberOfBins'])
     #Reg2.SetMetricFixedMask(fixedMask)
     if mask:
+      if maskType == 'moving':
         Reg2.SetMetricMovingMask(mask)
+      else:
+        Reg2.SetMetricFixedMask(mask)
         
     Reg2.SetInterpolator(sitk.sitkLinear)
     Reg2.SetOptimizerAsRegularStepGradientDescent(learningRate=0.2,
