@@ -98,7 +98,7 @@ def measureOverlap(srcLabel, maskLabel):
     
     maskFilter = sitk.MaskImageFilter()
     maskFilter.SetMaskingValue(0.0)
-    maskFilter.SetOutsideValue(1.0)
+    maskFilter.SetOutsideValue(0.0)
     overlapLabel = maskFilter.Execute(srcLabel, maskLabel)
     sitk.WriteImage(overlapLabel, 'overlap-label.nrrd')
     
@@ -106,7 +106,7 @@ def measureOverlap(srcLabel, maskLabel):
     return volumes
 
 
-def evaluateAblation(structureLabel, ablationLabel, param):
+def evaluateAblation(structureLabel, ablationLabel, param, fMinDist=True):
     
     results = {
     }
@@ -138,11 +138,14 @@ def evaluateAblation(structureLabel, ablationLabel, param):
         results['Involved.'+anatomDict[key]] = overlapVolumes[key]
         #print('Involved.'+anatomDict[key]+': '+str(overlapVolumes[key]))
 
-
-    minDistances = computeDistanceFromAblationVolume(resampledStructureLabel, ablationLabel)
-    for key in minDistances:
-        results['MinDist.'+anatomDict[key]] = minDistances[key]
-        #print('MinDist.'+anatomDict[key]+': '+str(minDistances[key]))
+    # The following step is skipped if fMinDist == False.
+    # It has become optional, after adding a new feature to calculate overlap with inner-iceball,
+    # because the minimum distance is equivalent to the new feature.
+    if fMinDist: 
+        minDistances = computeDistanceFromAblationVolume(resampledStructureLabel, ablationLabel)
+        for key in minDistances:
+            results['MinDist.'+anatomDict[key]] = minDistances[key]
+            #print('MinDist.'+anatomDict[key]+': '+str(minDistances[key]))
 
     return results
 

@@ -6,6 +6,7 @@ import json
 import ablation_evaluation as ae
 import ablation_registration as ar
 import numpy as np
+import csv
 
 
 anatomDict = {
@@ -13,6 +14,7 @@ anatomDict = {
     2 : 'EUS',
     3 : 'NVB'
 }
+
 
 
 def erodeDilateLabelByDistance(label, distance):
@@ -25,6 +27,14 @@ def erodeDilateLabelByDistance(label, distance):
     return newLabel
 
 
+def thresholdDurationMap(dmap, minDuration, maxDuration=np.Inf):
+    
+    newLabel = sitk.BinaryThreshold(dmap, minDuration, maxDuration, 1, 0)
+    
+    return newLabel
+
+
+
 def main(argv):
 
     args = []
@@ -32,6 +42,8 @@ def main(argv):
         parser = argparse.ArgumentParser(description="Process images listed in the image list file. ")
         parser.add_argument('list', metavar='IMAGE_LIST', type=str, nargs=1,
                             help='A JSON file that lists planning and intraprocedural images.')
+        parser.add_argument('output', metavar='RESULT_CSV', type=str, nargs=1,
+                            help='A csv file to store the results')
         #parser.add_argument('-b', dest='bSplineOrder', default='3',
         #                    help='B-Spline order (default: 3)')
         #parser.add_argument('-s', dest='shrinkFactor', default='4',
@@ -45,10 +57,11 @@ def main(argv):
         print(e)
         sys.exit()
 
-    imageListFile = args.list[0]
+    imageListFilePath = args.list[0]
+    resultFilePath = args.output[0]
     
     imageList = None
-    with open(imageListFile, "r") as read_file:
+    with open(imageListFilePath, "r") as read_file:
         imageList = json.load(read_file)
 
     planImageDict = imageList['PLAN_IMAGES']
@@ -57,6 +70,15 @@ def main(argv):
     param = {
         'margin'      : 0.0,
     }
+
+
+    # Open the result csv file
+    resultFile= open(resultFilePath, 'w', newline='')
+    csvWriter = csv.writer(resultFile)
+
+    resHeader = ['CASE', 'CYCLE', 'TIME', 'SERIES', 'MARGIN', 'MIN_DURATION', 'V_ABLATION', 'V_INV_TG', 'V_INV_EUS', 'V_INV_NVB']
+    csvWriter.writerow(resHeader)
+        
 
     # Calculate timestep
     intraImageMeta = []
@@ -75,10 +97,7 @@ def main(argv):
             #dt = dt.reshape([len(dt),1])
             intraImageMeta[(intraImageMeta[:,0]==exam) & (intraImageMeta[:,1]==fz),4] = dt
         
-    print ('Case,Cycle,Time,Ser,V_TG,V_EUS,V_NVB,V_ablation,' +
-           'V_INV_TG,V_INV_EUS,V_INV_NVB,MIN_DIST_TG,MIN_DIST_EUS,MIN_DIST_NVB,' +
-           'V_INV_3MM_TG,V_INV_3MM_EUS,V_INV_3MM_NVB,MIN_DIST_3MM_TG,MIN_DIST_3MM_EUS,MIN_DIST3MM__NVB,' +
-           'V_INV_5MM_TG,V_INV_5MM_EUS,V_INV_5MM_NVB,MIN_DIST_5MM_TG,MIN_DIST_5MM_EUS,MIN_DIST5MM__NVB,')
+    print ('Case,Cycle,Time,Ser,Margin,V_TG,V_EUS,V_NVB,V_ablation,V_INV_TG,V_INV_EUS,V_INV_NVB')
 
     intraImageList2 = []
     for line in intraImageList:
@@ -89,7 +108,8 @@ def main(argv):
         intraImageList2.append(line)
     intraImageListNP = np.array(intraImageList2)
 
-    #for imageData in intraImageList:
+    margins = [0.0, -1.0, -2.0, -3.0, -4.0, -5.0]
+
     for exam in np.unique(intraImageMeta[:,0]):
         examMeta = intraImageMeta[intraImageMeta[:,0]==exam]
         
@@ -103,22 +123,20 @@ def main(argv):
         refOrigin = structureLabel.GetOrigin()
         refSpacing = structureLabel.GetSpacing()
         refDirection = structureLabel.GetDirection()
-        
-        durationMap = sitk.Image(refSize, sitk.sitkFloat32)
-        durationMap.SetOrigin(refOrigin)
-        durationMap.SetSpacing(refSpacing)
-        durationMap.SetDirection(refDirection)
 
-        durationMap3mm = sitk.Image(refSize, sitk.sitkFloat32)
-        durationMap3mm.SetOrigin(refOrigin)
-        durationMap3mm.SetSpacing(refSpacing)
-        durationMap3mm.SetDirection(refDirection)
+        durationMap = {}
 
-        durationMap5mm = sitk.Image(refSize, sitk.sitkFloat32)
-        durationMap5mm.SetOrigin(refOrigin)
-        durationMap5mm.SetSpacing(refSpacing)
-        durationMap5mm.SetDirection(refDirection)
+        # Create maps
+        for m in margins:
         
+            dmap = sitk.Image(refSize, sitk.sitkFloat32)
+            dmap.SetOrigin(refOrigin)
+            dmap.SetSpacing(refSpacing)
+            dmap.SetDirection(refDirection)
+
+            durationMap[m] = dmap
+
+            
         for fz in np.unique(examMeta[:,1]):
             fzMeta = examMeta[examMeta[:,1]==fz]
              
@@ -141,81 +159,63 @@ def main(argv):
                     ablationLabelPath = 'PC%03d/NIFTY-Iceball-Resampled-label/REG-ICEBALL-%s' % (int(exam), ablationLabelFile)
                       
                     ablationLabel = sitk.ReadImage(ablationLabelPath, sitk.sitkUInt16)
-                    
-                    # Calculate label of inner iceball
-                    ablationLabel3mm = erodeDilateLabelByDistance(ablationLabel, -3.0)
-                    ablationLabel5mm = erodeDilateLabelByDistance(ablationLabel, -5.0)
-                    
-                    results = ae.evaluateAblation(structureLabel, ablationLabel, param)
-                    results3mm = ae.evaluateAblation(structureLabel, ablationLabel3mm, param)
-                    results5mm = ae.evaluateAblation(structureLabel, ablationLabel5mm, param)
-                    
-                    if not 'MinDist.TG'in results:
-                      results['MinDist.TG'] = float('nan')
-                    if not 'MinDist.EUS'in results:
-                      results['MinDist.EUS'] = float('nan')
-                    if not 'MinDist.NVB'in results:
-                      results['MinDist.NVB'] = float('nan')
-                      
-                    if not 'MinDist.TG'in results3mm:
-                      results3mm['MinDist.TG'] = float('nan')
-                    if not 'MinDist.EUS'in results3mm:
-                      results3mm['MinDist.EUS'] = float('nan')
-                    if not 'MinDist.NVB'in results3mm:
-                      results3mm['MinDist.NVB'] = float('nan')
-                    if not 'MinDist.TG'in results5mm:
-                      results5mm['MinDist.TG'] = float('nan')
-                    if not 'MinDist.EUS'in results5mm:
-                      results5mm['MinDist.EUS'] = float('nan')
-                    if not 'MinDist.NVB'in results5mm:
-                      results5mm['MinDist.NVB'] = float('nan')
-                      
-                    print ('%d,%d,%d,%d, %f,%f,%f, %f, %f,%f,%f, %f,%f,%f, %f,%f,%f, %f,%f,%f, %f,%f,%f, %f,%f,%f'
-                           % (int(exam),
-                              int(fz),
-                              int(time),
-                              int(ser),
-                              results['Structure.TG'],
-                              results['Structure.EUS'],
-                              results['Structure.NVB'],
-                              results['AblationVolume'],
-                              results['Involved.TG'],
-                              results['Involved.EUS'],
-                              results['Involved.NVB'],
-                              results['MinDist.TG'],
-                              results['MinDist.EUS'],
-                              results['MinDist.NVB'],
-                              results3mm['Involved.TG'],
-                              results3mm['Involved.EUS'],
-                              results3mm['Involved.NVB'],
-                              results3mm['MinDist.TG'],
-                              results3mm['MinDist.EUS'],
-                              results3mm['MinDist.NVB'],
-                              results5mm['Involved.TG'],
-                              results5mm['Involved.EUS'],
-                              results5mm['Involved.NVB'],
-                              results5mm['MinDist.TG'],
-                              results5mm['MinDist.EUS'],
-                              results5mm['MinDist.NVB'])
-                             )
 
-                    # Update map
-                    durationMap3mm = sitk.Cast(ablationLabel3mm, sitk.sitkFloat32)*dt + durationMap3mm
-                    durationMap5mm = sitk.Cast(ablationLabel5mm, sitk.sitkFloat32)*dt + durationMap5mm
+                    for m in margins:
+                        label = None
+                        if m == 0.0:
+                            label = ablationLabel
+                        else:
+                            label = erodeDilateLabelByDistance(ablationLabel, m)
 
-           
+                        # Update map
+                        durationMap[m] = sitk.Cast(label, sitk.sitkFloat32)*dt + durationMap[m]
+
+                        results = ae.evaluateAblation(structureLabel, label, param, fMinDist=False)
+                    
+                        print ('%d,%d,%d,%d,%f, %f,%f,%f, %f, %f,%f,%f' %
+                               (int(exam),
+                                int(fz),
+                                int(time),
+                                int(ser),
+                                m,
+                                results['Structure.TG'],
+                                results['Structure.EUS'],
+                                results['Structure.NVB'],
+                                results['AblationVolume'],
+                                results['Involved.TG'],
+                                results['Involved.EUS'],
+                                results['Involved.NVB']))
+                        
+        
         # Output duration map
         mapDir = 'PC%03d/NIFTY-Map' % (int(exam))
-        durationMapPath = '%s/DurationMap.nii.gz' % (mapDir)
-        durationMap3mmPath = '%s/DurationMap3mm.nii.gz' % (mapDir)
-        durationMap5mmPath = '%s/DurationMap5mm.nii.gz' % (mapDir)
-        
         if not os.path.exists(mapDir):
             os.mkdir(mapDir)
-            
-        sitk.WriteImage(durationMap, durationMapPath)
-        sitk.WriteImage(durationMap3mm, durationMap3mmPath)
-        sitk.WriteImage(durationMap5mm, durationMap5mmPath)
+
+        for m in margins:
+            durationMapPath = '%s/DurationMap_%f.nii.gz' % (mapDir, m)
+            sitk.WriteImage(durationMap[m], durationMapPath)
+
+        # Compute summary
+        minDurations = [0.001, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
+
+        for m in margins:
+            for d in minDurations:
+                label = thresholdDurationMap(durationMap[m], d)
+                results = ae.evaluateAblation(structureLabel, label, param, fMinDist=False)
+                row = [str(int(exam)),
+                       str(int(fz)),
+                       str(int(time)),
+                       str(int(ser)),
+                       str(m),
+                       str(d),
+                       str(results['AblationVolume']),
+                       str(results['Involved.TG']),
+                       str(results['Involved.EUS']),
+                       str(results['Involved.NVB'])]
+                csvWriter.writerow(row)
+
+    resultFile.close()
             
         
 if __name__ == "__main__":
